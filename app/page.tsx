@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import * as secp from '@noble/secp256k1';
-import { keccak256 } from '@noble/hashes/sha3';
+import { keccak_256 as keccak256 } from '@noble/hashes/sha3';
 
 export default function Home() {
   const [privateKey, setPrivateKey] = useState('');
