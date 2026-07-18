@@ -161,9 +161,8 @@ export default function Home() {
       const expectedAddress = addrInput.toLowerCase();
 
       // 1. Hash the message (Ethereum style)
-      const digest = ethers.hashMessage(msgInput); // keccak256("\u0019Ethereum Signed Message:
-" + len + msg)
-      const digestBytes = ethers.getBytes(digest);
+const digest = ethers.hashMessage(msgInput);
+const digestBytes = ethers.getBytes(digest);
 
       // 2. Recover public key and address from (digest, signature)
       const recoveredPubKey = ethers.recoverPublicKey(digestBytes, sigInput);
