@@ -164,17 +164,17 @@ export default function Home() {
 const digest = ethers.hashMessage(msgInput);
 const digestBytes = ethers.getBytes(digest);
 
-      // 2. Recover public key and address from (digest, signature)
-      const recoveredPubKey = ethers.recoverPublicKey(digestBytes, sigInput);
-      const recoveredAddress = ethers.recoverAddress(digestBytes, sigInput).toLowerCase();
+// 2. Recover public key and address from (digest, signature)
+const recoveredPubKey = ethers.SigningKey.recoverPublicKey(digestBytes, sigInput);
+const recoveredAddress = ethers.computeAddress(recoveredPubKey).toLowerCase();
 
-      // 3. Derive address from recovered public key via Keccak-256(X||Y)
-      // recoveredPubKey is uncompressed: 0x04 + X + Y (65 bytes)
-      const pubHex = recoveredPubKey.startsWith('0x') ? recoveredPubKey.slice(2) : recoveredPubKey;
-      const pubHexNoPrefix = pubHex.startsWith('04') ? pubHex.slice(2) : pubHex;
-      const pubBytes = ethers.getBytes('0x' + pubHexNoPrefix);
-      const hashHex = keccak256(pubBytes);
-      const derivedAddress = ('0x' + hashHex.slice(-40)).toLowerCase();
+// 3. Derive address from recovered public key via Keccak-256(X||Y)
+// recoveredPubKey is uncompressed: 0x04 + X + Y (65 bytes)
+const pubHex = recoveredPubKey.startsWith('0x') ? recoveredPubKey.slice(2) : recoveredPubKey;
+const pubHexNoPrefix = pubHex.startsWith('04') ? pubHex.slice(2) : pubHex;
+const pubBytes = ethers.getBytes('0x' + pubHexNoPrefix);
+const hashHex = keccak256(pubBytes);
+const derivedAddress = ('0x' + hashHex.slice(-40)).toLowerCase();
 
       const matchRecovered = recoveredAddress === expectedAddress;
       const matchDerived = derivedAddress === expectedAddress;
