@@ -3,8 +3,10 @@
 import { useState } from 'react';
 import * as secp from '@noble/secp256k1';
 import { keccak256 } from 'js-sha3';
+import { ethers } from 'ethers';
 
 export default function Home() {
+  // Forward flow: private key -> public keys -> address
   const [privateKey, setPrivateKey] = useState('');
   const [compressedPubKey, setCompressedPubKey] = useState('');
   const [uncompressedPubKey, setUncompressedPubKey] = useState('');
@@ -12,6 +14,12 @@ export default function Home() {
   const [calcDetails, setCalcDetails] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+
+  // Backward (verification) flow: address + message + signature -> public key -> address check
+  const [verifyAddress, setVerifyAddress] = useState('');
+  const [verifyMessage, setVerifyMessage] = useState('');
+  const [verifySignature, setVerifySignature] = useState('');
+  const [verifyResult, setVerifyResult] = useState('');
 
   const convertKey = async () => {
     setLoading(true);
@@ -136,17 +144,126 @@ export default function Home() {
     }
   };
 
+  // Backward check: wallet address + message + signature -> public key -> address match?
+  const handleVerify = () => {
+    try {
+      setVerifyResult('');
+
+      const addrInput = verifyAddress.trim();
+      const msgInput = verifyMessage.trim();
+      const sigInput = verifySignature.trim();
+
+      if (!addrInput || !msgInput || !sigInput) {
+        setVerifyResult('Please enter wallet address, message, and signature.');
+        return;
+      }
+
+      const expectedAddress = addrInput.toLowerCase();
+
+      // 1. Hash the message (Ethereum style)
+      const digest = ethers.hashMessage(msgInput); // keccak256("\u0019Ethereum Signed Message:
+" + len + msg)
+      const digestBytes = ethers.getBytes(digest);
+
+      // 2. Recover public key and address from (digest, signature)
+      const recoveredPubKey = ethers.recoverPublicKey(digestBytes, sigInput);
+      const recoveredAddress = ethers.recoverAddress(digestBytes, sigInput).toLowerCase();
+
+      // 3. Derive address from recovered public key via Keccak-256(X||Y)
+      // recoveredPubKey is uncompressed: 0x04 + X + Y (65 bytes)
+      const pubHex = recoveredPubKey.startsWith('0x') ? recoveredPubKey.slice(2) : recoveredPubKey;
+      const pubHexNoPrefix = pubHex.startsWith('04') ? pubHex.slice(2) : pubHex;
+      const pubBytes = ethers.getBytes('0x' + pubHexNoPrefix);
+      const hashHex = keccak256(pubBytes);
+      const derivedAddress = ('0x' + hashHex.slice(-40)).toLowerCase();
+
+      const matchRecovered = recoveredAddress === expectedAddress;
+      const matchDerived = derivedAddress === expectedAddress;
+
+      let out =
+        `1) Inputs
+` +
+        `   Wallet address: ${addrInput}
+` +
+        `   Message: "${msgInput}"
+` +
+        `   Signature: ${sigInput}
+
+` +
+
+        `2) Hash the message (Ethereum style)
+` +
+        `   digest = hashMessage(message)
+` +
+        `   digest: ${digest}
+
+` +
+
+        `3) ECDSA public key recovery
+` +
+        `   recoveredPublicKey = recoverPublicKey(digest, signature)
+` +
+        `   recoveredAddress  = recoverAddress(digest, signature)
+` +
+        `   Recovered public key: ${recoveredPubKey}
+` +
+        `   Recovered address from signature: ${recoveredAddress}
+
+` +
+
+        `4) Derive address from recovered public key
+` +
+        `   Drop 0x04 prefix from uncompressed public key -> X || Y (64 bytes)
+` +
+        `   Keccak-256(X || Y) = ${hashHex}
+` +
+        `   Last 20 bytes -> derived address = ${derivedAddress}
+
+` +
+
+        `5) Compare with input address
+` +
+        `   Expected address: ${expectedAddress}
+` +
+        `   Match recoveredAddress? ${matchRecovered ? 'YES' : 'NO'}
+` +
+        `   Match derivedAddress?  ${matchDerived ? 'YES' : 'NO'}
+`;
+
+      if (matchRecovered && matchDerived) {
+        out += `
+
+Result: ✅ The recovered public key corresponds to the given wallet address.
+`;
+      } else {
+        out += `
+
+Result: ❌ The signature does NOT belong to the given wallet address.
+`;
+      }
+
+      setVerifyResult(out);
+    } catch (err: any) {
+      setVerifyResult(`Verification failed: ${err.message || String(err)}`);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-gray-950 text-white flex items-center justify-center p-4">
-      <div className="max-w-3xl w-full bg-gray-900 rounded-2xl p-8 shadow-xl">
-        <h1 className="text-3xl font-bold mb-2 text-center">
+      <div className="max-w-3xl w-full bg-gray-900 rounded-2xl p-8 shadow-xl space-y-10">
+        <h1 className="text-3xl font-bold text-center">
           secp256k1 Key Tool
         </h1>
-        <p className="text-gray-400 text-center mb-8">
-          Private Key → Compressed Public Key → Uncompressed Public Key → Wallet Address
+        <p className="text-gray-400 text-center">
+          Box 1: Private Key → Public Keys → Wallet Address • Box 2: Wallet Address + Message + Signature → Public Key → Address Check
         </p>
 
-        <div className="space-y-6">
+        {/* Box 1: Forward direction */}
+        <div className="space-y-6 bg-gray-900 border border-gray-800 p-6 rounded-2xl">
+          <h2 className="text-lg font-semibold text-center">
+            Box 1 — Private Key → Public Key → Address
+          </h2>
+
           <div>
             <label className="block text-sm font-medium mb-2 text-gray-300">
               Private Key (hex)
@@ -162,7 +279,7 @@ export default function Home() {
           <button
             onClick={convertKey}
             disabled={loading || !privateKey.trim()}
-            className="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-gray-700 py-4 rounded-xl font-semibold transition disabled:cursor-not-allowed"
+            className="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-gray-700 py-3 rounded-xl font-semibold transition disabled:cursor-not-allowed"
           >
             {loading ? 'Generating...' : 'Generate Keys'}
           </button>
@@ -209,7 +326,7 @@ export default function Home() {
           {calcDetails && (
             <div className="bg-gray-950 border border-gray-800 p-5 rounded-xl">
               <div className="text-sm font-semibold mb-3 text-gray-300">
-                Calculation Steps
+                Calculation Steps (Forward)
               </div>
               <pre className="text-xs text-gray-200 font-mono whitespace-pre-wrap break-words leading-relaxed">
                 {calcDetails}
@@ -218,7 +335,67 @@ export default function Home() {
           )}
         </div>
 
-        <div className="mt-8 text-center text-xs text-gray-500">
+        {/* Box 2: Backward verification */}
+        <div className="space-y-6 bg-gray-900 border border-gray-800 p-6 rounded-2xl">
+          <h2 className="text-lg font-semibold text-center">
+            Box 2 — Wallet Address + Message + Signature → Public Key → Address Check
+          </h2>
+          <p className="text-xs text-gray-400 text-center">
+            This box recovers the public key from a signed message (ECDSA) and verifies that it corresponds to the wallet address.
+          </p>
+
+          <div className="space-y-3">
+            <label className="block text-sm font-medium text-gray-300">
+              Wallet Address (0x...)
+            </label>
+            <input
+              value={verifyAddress}
+              onChange={(e) => setVerifyAddress(e.target.value)}
+              className="w-full bg-gray-800 border border-gray-700 rounded-xl px-4 py-2 text-sm font-mono focus:outline-none focus:border-blue-500"
+              placeholder="0xYourWalletAddress"
+            />
+
+            <label className="block text-sm font-medium text-gray-300">
+              Message (exact string that was signed)
+            </label>
+            <textarea
+              value={verifyMessage}
+              onChange={(e) => setVerifyMessage(e.target.value)}
+              className="w-full h-20 bg-gray-800 border border-gray-700 rounded-xl px-4 py-2 text-sm font-mono focus:outline-none focus:border-blue-500 resize-y"
+              placeholder="Hello from my key tool!"
+            />
+
+            <label className="block text-sm font-medium text-gray-300">
+              Signature (hex)
+            </label>
+            <textarea
+              value={verifySignature}
+              onChange={(e) => setVerifySignature(e.target.value)}
+              className="w-full h-20 bg-gray-800 border border-gray-700 rounded-xl px-4 py-2 text-sm font-mono focus:outline-none focus:border-blue-500 resize-y"
+              placeholder="0x..."
+            />
+
+            <button
+              onClick={handleVerify}
+              className="w-full bg-emerald-600 hover:bg-emerald-700 py-3 rounded-xl font-semibold transition"
+            >
+              Verify Public Key & Address
+            </button>
+
+            {verifyResult && (
+              <div className="mt-3 bg-gray-950 border border-gray-800 p-4 rounded-xl">
+                <div className="text-sm font-semibold mb-2 text-gray-300">
+                  Calculation Steps (Backward / ECDSA Recovery)
+                </div>
+                <pre className="text-xs text-gray-200 font-mono whitespace-pre-wrap break-words leading-relaxed">
+                  {verifyResult}
+                </pre>
+              </div>
+            )}
+          </div>
+        </div>
+
+        <div className="text-center text-xs text-gray-500">
           Runs 100% in your browser • No data leaves your device
         </div>
       </div>
