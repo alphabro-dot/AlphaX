@@ -6,54 +6,129 @@ import { keccak256 } from 'js-sha3';
 
 export default function Home() {
   const [privateKey, setPrivateKey] = useState('');
-  const [publicKey, setPublicKey] = useState('');
-  const [address, setAddress] = useState('');
+  const [compressedPubKey, setCompressedPubKey] = useState('');
+  const [uncompressedPubKey, setUncompressedPubKey] = useState('');
+  const [walletAddress, setWalletAddress] = useState('');
+  const [calcDetails, setCalcDetails] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
   const convertKey = async () => {
     setLoading(true);
     setError('');
-    setPublicKey('');
-    setAddress('');
+    setCompressedPubKey('');
+    setUncompressedPubKey('');
+    setWalletAddress('');
+    setCalcDetails('');
 
     try {
-      // Clean and validate private key
-      let cleanKey = privateKey.trim().replace(/^0x/i, '').toLowerCase();
+      const cleanKey = privateKey.trim().replace(/^0x/i, '').toLowerCase();
 
       if (!/^[0-9a-f]{64}$/.test(cleanKey)) {
         throw new Error('Private key must be exactly 64 hexadecimal characters (32 bytes)');
       }
 
-      // Convert hex string to Uint8Array (32 bytes)
       const privBytes = new Uint8Array(32);
       for (let i = 0; i < 32; i++) {
-        privBytes[i] = parseInt(cleanKey.substr(i * 2, 2), 16);
+        privBytes[i] = parseInt(cleanKey.slice(i * 2, i * 2 + 2), 16);
       }
 
-      // 1) Compressed public key (33 bytes)
       const pubCompressed = secp.getPublicKey(privBytes, true);
-
-      // 2) Uncompressed public key (65 bytes: 04 || X || Y)
       const pubUncompressed = secp.getPublicKey(privBytes, false);
 
-      // 3) Drop leading 0x04 to get X||Y (64 bytes)
-      const pubXY = pubUncompressed.slice(1);
+      const compressedHex =
+        '0x' +
+        Array.from(pubCompressed)
+          .map((byte) => byte.toString(16).padStart(2, '0'))
+          .join('');
 
-      // 4) Keccak-256 hash of X||Y (Ethereum-style)
-      // js-sha3 keccak256 accepts Uint8Array directly and returns hex string
-      const hashHex = keccak256(pubXY);
+      const uncompressedHex =
+        '0x' +
+        Array.from(pubUncompressed)
+          .map((byte) => byte.toString(16).padStart(2, '0'))
+          .join('');
 
-      // 5) Last 20 bytes (40 hex chars) are the EVM address
-      const addr = '0x' + hashHex.slice(-40);
-
-      // Convert compressed public key bytes to hex
-      const pubHex = Array.from(pubCompressed)
-        .map(byte => byte.toString(16).padStart(2, '0'))
+      const xHex = Array.from(pubUncompressed.slice(1, 33))
+        .map((byte) => byte.toString(16).padStart(2, '0'))
         .join('');
 
-      setPublicKey('0x' + pubHex);
-      setAddress(addr);
+      const yHex = Array.from(pubUncompressed.slice(33))
+        .map((byte) => byte.toString(16).padStart(2, '0'))
+        .join('');
+
+      const xyBytes = pubUncompressed.slice(1);
+      const hashHex = keccak256(xyBytes);
+      const address = '0x' + hashHex.slice(-40);
+
+      setCompressedPubKey(compressedHex);
+      setUncompressedPubKey(uncompressedHex);
+      setWalletAddress(address);
+
+      const details =
+        `1) Private key input
+` +
+        `   Hex: 0x${cleanKey}
+` +
+        `   Bytes: 32
+` +
+        `   Bits: 256
+
+` +
+
+        `2) Convert private key to secp256k1 public key
+` +
+        `   Operation: P = d × G
+` +
+        `   d = private key integer
+` +
+        `   G = generator point on secp256k1
+` +
+        `   Result = public key point (X, Y)
+
+` +
+
+        `3) Public key (compressed)
+` +
+        `   Format: 0x02/0x03 + X
+` +
+        `   Bytes: 33
+` +
+        `   Value: ${compressedHex}
+
+` +
+
+        `4) Public key (uncompressed)
+` +
+        `   Format: 0x04 + X + Y
+` +
+        `   Bytes: 65
+` +
+        `   Value: ${uncompressedHex}
+
+` +
+
+        `5) Split uncompressed public key
+` +
+        `   Prefix: 0x04
+` +
+        `   X: 0x${xHex}
+` +
+        `   Y: 0x${yHex}
+
+` +
+
+        `6) Ethereum / EVM address derivation
+` +
+        `   Input to Keccak-256: X || Y
+` +
+        `   Hash: ${hashHex}
+` +
+        `   Take last 20 bytes (last 40 hex chars)
+` +
+        `   Address: ${address}
+`;
+
+      setCalcDetails(details);
     } catch (err: any) {
       setError(err.message || 'Failed to generate keys');
     } finally {
@@ -63,10 +138,12 @@ export default function Home() {
 
   return (
     <div className="min-h-screen bg-gray-950 text-white flex items-center justify-center p-4">
-      <div className="max-w-md w-full bg-gray-900 rounded-2xl p-8 shadow-xl">
-        <h1 className="text-3xl font-bold mb-2 text-center">secp256k1 Key Tool</h1>
+      <div className="max-w-3xl w-full bg-gray-900 rounded-2xl p-8 shadow-xl">
+        <h1 className="text-3xl font-bold mb-2 text-center">
+          secp256k1 Key Tool
+        </h1>
         <p className="text-gray-400 text-center mb-8">
-          Private Key → Public Key → EVM Address
+          Private Key → Compressed Public Key → Uncompressed Public Key → Wallet Address
         </p>
 
         <div className="space-y-6">
@@ -77,7 +154,7 @@ export default function Home() {
             <textarea
               value={privateKey}
               onChange={(e) => setPrivateKey(e.target.value)}
-              placeholder="Enter 64 hex characters (e.g. 0000000000000000000000000000000000000000000000000000000000000001)"
+              placeholder="Enter 64 hex characters (example: 7311a79aed7b4d686a39c441bec87ed133fb57c08ea43b0860b1a0100b7b7527)"
               className="w-full h-28 bg-gray-800 border border-gray-700 rounded-xl px-4 py-3 text-sm font-mono focus:outline-none focus:border-blue-500 resize-y"
             />
           </div>
@@ -96,39 +173,47 @@ export default function Home() {
             </div>
           )}
 
-          {publicKey && (
-            <div className="bg-emerald-950 border border-emerald-800 p-5 rounded-xl space-y-4">
-              <div>
+          {compressedPubKey && (
+            <div className="grid gap-4 md:grid-cols-2">
+              <div className="bg-emerald-950 border border-emerald-800 p-5 rounded-xl">
                 <div className="text-emerald-400 text-sm mb-2">
                   Public Key (Compressed)
                 </div>
                 <div className="font-mono break-all text-emerald-100 text-sm leading-relaxed">
-                  {publicKey}
+                  {compressedPubKey}
                 </div>
-                <button
-                  onClick={() => navigator.clipboard.writeText(publicKey)}
-                  className="mt-3 text-xs bg-emerald-900 hover:bg-emerald-800 px-4 py-2 rounded-lg transition"
-                >
-                  📋 Copy Public Key
-                </button>
               </div>
 
-              {address && (
-                <div className="border-t border-emerald-800 pt-4">
-                  <div className="text-emerald-400 text-sm mb-2">
-                    EVM Address (Ethereum-style)
-                  </div>
-                  <div className="font-mono break-all text-emerald-100 text-sm leading-relaxed">
-                    {address}
-                  </div>
-                  <button
-                    onClick={() => navigator.clipboard.writeText(address)}
-                    className="mt-3 text-xs bg-emerald-900 hover:bg-emerald-800 px-4 py-2 rounded-lg transition"
-                  >
-                    📋 Copy Address
-                  </button>
+              <div className="bg-emerald-950 border border-emerald-800 p-5 rounded-xl">
+                <div className="text-emerald-400 text-sm mb-2">
+                  Wallet Address
                 </div>
-              )}
+                <div className="font-mono break-all text-emerald-100 text-sm leading-relaxed">
+                  {walletAddress}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {uncompressedPubKey && (
+            <div className="bg-indigo-950 border border-indigo-800 p-5 rounded-xl">
+              <div className="text-indigo-400 text-sm mb-2">
+                Public Key (Uncompressed)
+              </div>
+              <div className="font-mono break-all text-indigo-100 text-sm leading-relaxed">
+                {uncompressedPubKey}
+              </div>
+            </div>
+          )}
+
+          {calcDetails && (
+            <div className="bg-gray-950 border border-gray-800 p-5 rounded-xl">
+              <div className="text-sm font-semibold mb-3 text-gray-300">
+                Calculation Steps
+              </div>
+              <pre className="text-xs text-gray-200 font-mono whitespace-pre-wrap break-words leading-relaxed">
+                {calcDetails}
+              </pre>
             </div>
           )}
         </div>
