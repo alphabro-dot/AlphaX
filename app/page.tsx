@@ -23,6 +23,63 @@ function hexToBigInt(hex: string): bigint {
   return BigInt('0x' + clean);
 }
 
+// Standard ECDSA public key recovery for secp256k1
+// msgHash: 32 bytes
+// signature: { r, s } as bigint
+// recovery: 0 or 1
+// returns uncompressed public key bytes (65 bytes)
+function recoverPublicKeyFromSignature(
+  msgHash: Uint8Array,
+  signature: { r: bigint; s: bigint },
+  recovery: number
+): Uint8Array {
+  const n = secp.CURVE.n!;
+  const G = secp.Point.BASE;
+
+  if (msgHash.length !== 32) {
+    throw new Error('msgHash must be 32 bytes');
+  }
+
+  const z = hexToBigInt(
+    '0x' +
+      Array.from(msgHash)
+        .map((b) => b.toString(16).padStart(2, '0'))
+        .join('')
+  );
+
+  const { r, s } = signature;
+
+  // Compute R = G * r^-1 * (s * z + recovery * n) mod n
+  const rInv = r ** (n - BigInt(2)) % n; // r^-1 mod n
+  const sZ = (s * z) % n;
+  const rN = ((BigInt(recovery) * n) % n);
+  const numerator = (sZ + rN) % n;
+  const R = G.multiply((rInv * numerator) % n);
+
+  // Compute public key P = R * s^-1 * z
+  const sInv = s ** (n - BigInt(2)) % n; // s^-1 mod n
+  const P = R.multiply((sInv * z) % n);
+
+  // Uncompressed public key: 0x04 || x || y
+  const xBytes = toFixedHex(P.x, 32);
+  const yBytes = toFixedHex(P.y, 32);
+
+  const pubBytes = new Uint8Array(65);
+  pubBytes[0] = 0x04;
+  pubBytes.set(xBytes, 1);
+  pubBytes.set(yBytes, 33);
+  return pubBytes;
+}
+
+function toFixedHex(value: bigint, length: number): Uint8Array {
+  const hex = value.toString(16).padStart(length * 2, '0');
+  const bytes = new Uint8Array(length);
+  for (let i = 0; i < length; i++) {
+    bytes[i] = parseInt(hex.slice(i * 2, i * 2 + 2), 16);
+  }
+  return bytes;
+}
+
 export default function Home() {
   // Box 1 (R&D) – Private key -> Public key -> Address
   const [privKeyInput, setPrivKeyInput] = useState('');
@@ -126,9 +183,12 @@ export default function Home() {
         recovery = vNumber === 27 ? 0 : 1;
       }
 
-      // Recover public key with secp256k1 (static helper)
-      const sig = new secp.Signature(r, s);
-      const recoveredPubBytes = secp.recoverPublicKey(digestBytes, sig, recovery, false); // uncompressed
+      // Recover public key using our custom implementation
+      const recoveredPubBytes = recoverPublicKeyFromSignature(
+        digestBytes,
+        { r, s },
+        recovery
+      );
 
       const recoveredPubKey =
         '0x' +
@@ -273,4 +333,4 @@ Match (derived)? ${matchDerived ? 'YES' : 'NO'}`
       </div>
     </div>
   );
-}
+                                    }
