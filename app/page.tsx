@@ -1,419 +1,257 @@
 'use client';
 
 import { useState } from 'react';
+import { ethers } from 'ethers';
 import * as secp from '@noble/secp256k1';
 import { keccak256 } from 'js-sha3';
-import { ethers } from 'ethers';
 
 type ChainKey = 'ethereum' | 'bsc';
 
-type TxInfo = {
-  hash: string;
-  from: string;
-  to: string | null;
-  nonce: number;
-  gasLimit: string;
-  gasPrice: string | null;
-  maxFeePerGas: string | null;
-  maxPriorityFeePerGas: string | null;
-  value: string;
-  data: string;
-  chainId: string;
-  type: string;
-  signatureV: string;
-  signatureR: string;
-  signatureS: string;
-  methodId: string;
-  decodedTo: string | null;
-  decodedValue: string | null;
-};
-
 const RPC_URLS: Record<ChainKey, string> = {
   ethereum: 'https://ethereum.publicnode.com',
-  bsc: 'https://bsc.publicnode.com'
+  bsc: 'https://bsc.publicnode.com',
 };
 
 const CHAIN_LABELS: Record<ChainKey, string> = {
   ethereum: 'Ethereum Mainnet',
-  bsc: 'BNB Smart Chain'
+  bsc: 'BNB Smart Chain',
 };
 
 export default function Home() {
-  const [privateKey, setPrivateKey] = useState('');
-  const [compressedPubKey, setCompressedPubKey] = useState('');
-  const [uncompressedPubKey, setUncompressedPubKey] = useState('');
-  const [walletAddress, setWalletAddress] = useState('');
-  const [calcDetails, setCalcDetails] = useState('');
-  const [error, setError] = useState('');
-  const [loading, setLoading] = useState(false);
+  // Box 1 (R&D) – Private key -> Public key -> Address
+  const [privKeyInput, setPrivKeyInput] = useState('');
+  const [box1PubKey, setBox1PubKey] = useState('');
+  const [box1Address, setBox1Address] = useState('');
+  const [box1Error, setBox1Error] = useState('');
 
-  const [verifyAddress, setVerifyAddress] = useState('');
-  const [verifyMessage, setVerifyMessage] = useState('');
-  const [verifySignature, setVerifySignature] = useState('');
-  const [verifyResult, setVerifyResult] = useState('');
-
+  // Box 3 – Chain + tx hash -> v/r/s -> Public key -> Address check
+  const [chain, setChain] = useState<ChainKey>('ethereum');
   const [txHash, setTxHash] = useState('');
-  const [selectedChain, setSelectedChain] = useState<ChainKey>('ethereum');
-  const [txLoading, setTxLoading] = useState(false);
+  const [txJson, setTxJson] = useState<any | null>(null);
+  const [box3Result, setBox3Result] = useState('');
   const [txError, setTxError] = useState('');
-  const [txInfo, setTxInfo] = useState<TxInfo | null>(null);
+  const [txLoading, setTxLoading] = useState(false);
 
-  const convertKey = async () => {
-    setLoading(true);
-    setError('');
-    setCompressedPubKey('');
-    setUncompressedPubKey('');
-    setWalletAddress('');
-    setCalcDetails('');
+  // ---------------- Box 1: Private key -> Public key -> Address (R&D only) ----------------
+
+  const handleBox1 = async () => {
+    setBox1Error('');
+    setBox1PubKey('');
+    setBox1Address('');
 
     try {
-      const cleanKey = privateKey.trim().replace(/^0x/i, '').toLowerCase();
-      if (!/^[0-9a-f]{64}$/.test(cleanKey)) {
-        throw new Error('Private key must be exactly 64 hexadecimal characters (32 bytes)');
+      const clean = privKeyInput.trim().replace(/^0x/i, '').toLowerCase();
+      if (!/^[0-9a-f]{64}$/.test(clean)) {
+        throw new Error('Private key must be 64 hex characters (32 bytes).');
       }
 
       const privBytes = new Uint8Array(32);
       for (let i = 0; i < 32; i++) {
-        privBytes[i] = parseInt(cleanKey.slice(i * 2, i * 2 + 2), 16);
+        privBytes[i] = parseInt(clean.slice(i * 2, i * 2 + 2), 16);
       }
 
-      const pubCompressed = secp.getPublicKey(privBytes, true);
-      const pubUncompressed = secp.getPublicKey(privBytes, false);
-
-      const compressedHex =
+      const pub = secp.getPublicKey(privBytes, false); // uncompressed public key
+      const pubHex =
         '0x' +
-        Array.from(pubCompressed)
+        Array.from(pub)
           .map((b) => b.toString(16).padStart(2, '0'))
           .join('');
 
-      const uncompressedHex =
-        '0x' +
-        Array.from(pubUncompressed)
-          .map((b) => b.toString(16).padStart(2, '0'))
-          .join('');
-
-      const xHex = Array.from(pubUncompressed.slice(1, 33))
-        .map((b) => b.toString(16).padStart(2, '0'))
-        .join('');
-
-      const yHex = Array.from(pubUncompressed.slice(33))
-        .map((b) => b.toString(16).padStart(2, '0'))
-        .join('');
-
-      const hashHex = keccak256(pubUncompressed.slice(1));
+      const hashHex = keccak256(pub.slice(1));
       const address = '0x' + hashHex.slice(-40);
 
-      setCompressedPubKey(compressedHex);
-      setUncompressedPubKey(uncompressedHex);
-      setWalletAddress(address);
-
-      setCalcDetails(
-        `1) Private key input
-   Hex: 0x${cleanKey}
-   Bytes: 32
-   Bits: 256
-
-2) Convert private key to secp256k1 public key
-   Operation: P = d × G
-   Result = public key point (X, Y)
-
-3) Public key (compressed)
-   Value: ${compressedHex}
-
-4) Public key (uncompressed)
-   Value: ${uncompressedHex}
-
-5) Split uncompressed public key
-   X: 0x${xHex}
-   Y: 0x${yHex}
-
-6) Ethereum / EVM address derivation
-   Keccak-256(X || Y): ${hashHex}
-   Address: ${address}`
-      );
+      setBox1PubKey(pubHex);
+      setBox1Address(address);
     } catch (err: any) {
-      setError(err?.message || 'Failed to generate keys');
-    } finally {
-      setLoading(false);
+      setBox1Error(err?.message || 'Failed to derive public key and address.');
     }
   };
 
-  const handleVerify = () => {
-    try {
-      setVerifyResult('');
+  // ---------------- Box 3: Transaction v/r/s -> Public key -> Address check ----------------
 
-      const addrInput = verifyAddress.trim();
-      const msgInput = verifyMessage.trim();
-      const sigInput = verifySignature.trim();
-
-      if (!addrInput || !msgInput || !sigInput) {
-        setVerifyResult('Please enter wallet address, message, and signature.');
-        return;
-      }
-
-      const digest = ethers.hashMessage(msgInput);
-      const recoveredPubKey = ethers.SigningKey.recoverPublicKey(digest, sigInput);
-      const recoveredAddress = ethers.computeAddress(recoveredPubKey).toLowerCase();
-
-      const pubHex = recoveredPubKey.startsWith('0x') ? recoveredPubKey.slice(2) : recoveredPubKey;
-      const pubHexNoPrefix = pubHex.startsWith('04') ? pubHex.slice(2) : pubHex;
-      const derivedHash = keccak256(ethers.getBytes('0x' + pubHexNoPrefix));
-      const derivedAddress = ('0x' + derivedHash.slice(-40)).toLowerCase();
-
-      const expectedAddress = addrInput.toLowerCase();
-      const matchRecovered = recoveredAddress === expectedAddress;
-      const matchDerived = derivedAddress === expectedAddress;
-
-      setVerifyResult(
-        `1) Inputs
-   Wallet address: ${addrInput}
-   Message: "${msgInput}"
-   Signature: ${sigInput}
-
-2) Hash the message (Ethereum style)
-   digest: ${digest}
-
-3) ECDSA public key recovery
-   Recovered public key: ${recoveredPubKey}
-   Recovered address from signature: ${recoveredAddress}
-
-4) Derive address from recovered public key
-   Keccak-256(X || Y): ${derivedHash}
-   Derived address: ${derivedAddress}
-
-5) Compare with input address
-   Expected address: ${expectedAddress}
-   Match recoveredAddress? ${matchRecovered ? 'YES' : 'NO'}
-   Match derivedAddress? ${matchDerived ? 'YES' : 'NO'}
-
-Result: ${matchRecovered && matchDerived ? '✅ The recovered public key corresponds to the given wallet address.' : '❌ The signature does NOT belong to the given wallet address.'}`
-      );
-    } catch (err: any) {
-      setVerifyResult(`Verification failed: ${err?.message || String(err)}`);
-    }
-  };
-
-  const fetchTxDetails = async () => {
+  const handleBox3 = async () => {
     setTxLoading(true);
     setTxError('');
-    setTxInfo(null);
+    setTxJson(null);
+    setBox3Result('');
 
     try {
       const cleanHash = txHash.trim();
       if (!/^0x[a-fA-F0-9]{64}$/.test(cleanHash)) {
-        throw new Error('Transaction hash must be a 66-character hex string starting with 0x');
+        throw new Error('Transaction hash must be 66 hex characters starting with 0x.');
       }
 
-      const provider = new ethers.JsonRpcProvider(RPC_URLS[selectedChain]);
+      const provider = new ethers.JsonRpcProvider(RPC_URLS[chain]);
       const tx = await provider.getTransaction(cleanHash);
 
       if (!tx) {
-        throw new Error(`Transaction not found on ${CHAIN_LABELS[selectedChain]}`);
+        throw new Error(`Transaction not found on ${CHAIN_LABELS[chain]}.`);
       }
 
-      const input = tx.data || '';
-      const methodId = input.length >= 10 ? input.slice(0, 10) : '0x';
+      setTxJson(tx);
 
-      let decodedTo: string | null = null;
-      let decodedValue: string | null = null;
-
-      if (methodId.toLowerCase() === '0xa9059cbb' && input.length >= 138) {
-        decodedTo = '0x' + input.slice(34, 74);
-        decodedValue = BigInt('0x' + input.slice(74, 138)).toString();
+      if (!tx.signature || tx.signature.r === '0x' || tx.signature.s === '0x') {
+        throw new Error('Transaction does not have a usable v/r/s signature.');
       }
 
-      const sig = tx.signature;
+      // Signed payload for transactions: serialized signed transaction
+      const fullTx = ethers.Transaction.from(tx);
+      const rawSigned = fullTx.serialized;
+      const digest = ethers.keccak256(rawSigned); // hash of signed payload
 
-      setTxInfo({
-        hash: tx.hash,
-        from: tx.from || '',
-        to: tx.to,
-        nonce: tx.nonce,
-        gasLimit: tx.gasLimit.toString(),
-        gasPrice: tx.gasPrice ? tx.gasPrice.toString() : null,
-        maxFeePerGas: tx.maxFeePerGas ? tx.maxFeePerGas.toString() : null,
-        maxPriorityFeePerGas: tx.maxPriorityFeePerGas ? tx.maxPriorityFeePerGas.toString() : null,
-        value: tx.value.toString(),
-        data: tx.data,
-        chainId: tx.chainId.toString(),
-        type: String(tx.type),
-        signatureV: sig?.v != null ? String(sig.v) : '',
-        signatureR: sig?.r || '',
-        signatureS: sig?.s || '',
-        methodId,
-        decodedTo,
-        decodedValue
-      });
+      // Build signature from v/r/s
+      const sigObj = {
+        r: tx.signature.r,
+        s: tx.signature.s,
+        v: tx.signature.v,
+      };
+      const joinedSig = ethers.Signature.from(sigObj).serialized;
+
+      // Recover public key from transaction digest + signature
+      const recoveredPubKey = ethers.recoverPublicKey(digest, joinedSig);
+
+      // Derive address via ethers helper
+      const recoveredAddress = ethers.computeAddress(recoveredPubKey).toLowerCase();
+
+      // Manual address derivation from public key (for double-check)
+      const pubHex = recoveredPubKey.startsWith('0x')
+        ? recoveredPubKey.slice(2)
+        : recoveredPubKey;
+      const pubNoPrefix = pubHex.startsWith('04') ? pubHex.slice(2) : pubHex;
+      const derivedHash = keccak256(ethers.getBytes('0x' + pubNoPrefix));
+      const derivedAddress = ('0x' + derivedHash.slice(-40)).toLowerCase();
+
+      const fromAddr = (tx.from || '').toLowerCase();
+      const matchRecovered = recoveredAddress === fromAddr;
+      const matchDerived = derivedAddress === fromAddr;
+
+      setBox3Result(
+        `Signed payload digest (tx hash): ${digest}
+Recovered public key: ${recoveredPubKey}
+Recovered address (ethers): ${recoveredAddress}
+Derived address (keccak of public key): ${derivedAddress}
+From address (tx.from): ${fromAddr}
+Match (recovered)? ${matchRecovered ? 'YES' : 'NO'}
+Match (derived)? ${matchDerived ? 'YES' : 'NO'}`
+      );
     } catch (err: any) {
-      setTxError(err?.message || 'Failed to fetch transaction');
+      setTxError(err?.message || 'Failed to verify transaction signature.');
     } finally {
       setTxLoading(false);
     }
   };
 
+  // ---------------- UI ----------------
+
   return (
     <div className="min-h-screen bg-gray-950 text-white flex items-center justify-center p-4">
       <div className="max-w-4xl w-full bg-gray-900 rounded-2xl p-6 md:p-8 shadow-xl space-y-8">
-        <h1 className="text-3xl font-bold text-center">secp256k1 Key Tool</h1>
-        <p className="text-gray-400 text-center">
-          Private key derivation, signed-message recovery, and transaction inspection
-        </p>
 
-        <section className="space-y-5 bg-gray-900 border border-gray-800 p-5 rounded-2xl">
+        {/* Box 1: Private key -> Public key -> Address (R&D) */}
+        <section className="space-y-4 bg-gray-900 border border-gray-800 p-5 rounded-2xl">
           <h2 className="text-lg font-semibold text-center">
-            Box 1 — Private Key → Public Key → Address
+            Box 1 — Private Key → Public Key → Wallet Address (R&amp;D)
           </h2>
 
-          <label className="block text-sm font-medium text-gray-300">
-            Private Key (hex)
-          </label>
-          <textarea
-            value={privateKey}
-            onChange={(e) => setPrivateKey(e.target.value)}
-            placeholder="Enter 64 hex characters"
-            className="w-full h-24 bg-gray-800 border border-gray-700 rounded-xl px-4 py-3 text-sm font-mono focus:outline-none focus:border-blue-500 resize-y"
-          />
-
-          <button
-            onClick={convertKey}
-            disabled={loading || !privateKey.trim()}
-            className="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-gray-700 py-3 rounded-xl font-semibold transition disabled:cursor-not-allowed"
-          >
-            {loading ? 'Generating...' : 'Generate Keys'}
-          </button>
-
-          {error && (
-            <div className="bg-red-900/50 border border-red-700 text-red-300 p-4 rounded-xl text-sm">
-              {error}
-            </div>
-          )}
-
-          {compressedPubKey && (
-            <div className="grid gap-4 md:grid-cols-2">
-              <div className="bg-emerald-950 border border-emerald-800 p-5 rounded-xl">
-                <div className="text-emerald-400 text-sm mb-2">Compressed Public Key</div>
-                <div className="font-mono break-all text-emerald-100 text-sm">{compressedPubKey}</div>
-              </div>
-              <div className="bg-emerald-950 border border-emerald-800 p-5 rounded-xl">
-                <div className="text-emerald-400 text-sm mb-2">Wallet Address</div>
-                <div className="font-mono break-all text-emerald-100 text-sm">{walletAddress}</div>
-              </div>
-            </div>
-          )}
-
-          {uncompressedPubKey && (
-            <div className="bg-indigo-950 border border-indigo-800 p-5 rounded-xl">
-              <div className="text-indigo-400 text-sm mb-2">Uncompressed Public Key</div>
-              <div className="font-mono break-all text-indigo-100 text-sm">{uncompressedPubKey}</div>
-            </div>
-          )}
-
-          {calcDetails && (
-            <div className="bg-gray-950 border border-gray-800 p-5 rounded-xl">
-              <div className="text-sm font-semibold mb-3 text-gray-300">Calculation Steps</div>
-              <pre className="text-xs text-gray-200 font-mono whitespace-pre-wrap break-words leading-relaxed">
-                {calcDetails}
-              </pre>
-            </div>
-          )}
-        </section>
-
-        <section className="space-y-5 bg-gray-900 border border-gray-800 p-5 rounded-2xl">
-          <h2 className="text-lg font-semibold text-center">
-            Box 2 — Wallet Address + Message + Signature → Public Key → Address Check
-          </h2>
-
-          <label className="block text-sm font-medium text-gray-300">Wallet Address (0x...)</label>
-          <input
-            value={verifyAddress}
-            onChange={(e) => setVerifyAddress(e.target.value)}
-            className="w-full bg-gray-800 border border-gray-700 rounded-xl px-4 py-2 text-sm font-mono focus:outline-none focus:border-blue-500"
-            placeholder="0xYourWalletAddress"
-          />
+          <p className="text-xs text-gray-400 text-center">
+            Dev-only: for learning how your private key generates a public key and address.
+            In a real wallet, users should NOT type their private key here.
+          </p>
 
           <label className="block text-sm font-medium text-gray-300">
-            Message (exact string that was signed)
+            Private Key (hex, 64 characters)
           </label>
           <textarea
-            value={verifyMessage}
-            onChange={(e) => setVerifyMessage(e.target.value)}
-            className="w-full h-20 bg-gray-800 border border-gray-700 rounded-xl px-4 py-2 text-sm font-mono focus:outline-none focus:border-blue-500 resize-y"
-            placeholder="Hello from my key tool!"
-          />
-
-          <label className="block text-sm font-medium text-gray-300">Signature (hex)</label>
-          <textarea
-            value={verifySignature}
-            onChange={(e) => setVerifySignature(e.target.value)}
-            className="w-full h-20 bg-gray-800 border border-gray-700 rounded-xl px-4 py-2 text-sm font-mono focus:outline-none focus:border-blue-500 resize-y"
+            value={privKeyInput}
+            onChange={(e) => setPrivKeyInput(e.target.value)}
+            className="w-full h-20 bg-gray-800 border border-gray-700 rounded-xl px-4 py-2 text-sm font-mono"
             placeholder="0x..."
           />
 
           <button
-            onClick={handleVerify}
-            className="w-full bg-emerald-600 hover:bg-emerald-700 py-3 rounded-xl font-semibold transition"
+            onClick={handleBox1}
+            className="w-full bg-blue-600 hover:bg-blue-700 py-3 rounded-xl font-semibold"
           >
-            Verify Public Key & Address
+            Derive Public Key &amp; Address
           </button>
 
-          {verifyResult && (
-            <div className="bg-gray-950 border border-gray-800 p-4 rounded-xl">
-              <div className="text-sm font-semibold mb-2 text-gray-300">Verification Result</div>
-              <pre className="text-xs text-gray-200 font-mono whitespace-pre-wrap break-words leading-relaxed">
-                {verifyResult}
-              </pre>
+          {box1Error && (
+            <div className="bg-red-900/50 border border-red-700 text-red-300 p-3 rounded-xl text-sm">
+              {box1Error}
+            </div>
+          )}
+
+          {box1PubKey && (
+            <div className="space-y-2 text-xs font-mono break-words">
+              <div>Public key (uncompressed): {box1PubKey}</div>
+              <div>Wallet address: {box1Address}</div>
             </div>
           )}
         </section>
 
-        <section className="space-y-5 bg-gray-900 border border-gray-800 p-5 rounded-2xl">
+        {/* Box 3: Chain + Tx Hash -> v/r/s -> Public Key -> Address Check */}
+        <section className="space-y-4 bg-gray-900 border border-gray-800 p-5 rounded-2xl">
           <h2 className="text-lg font-semibold text-center">
-            Box 3 — Transaction Hash → Fields, v/r/s, and Input Decode
+            Box 3 — Verify Transaction Signature (Recommended for normal wallets)
           </h2>
 
-          <label className="block text-sm font-medium text-gray-300">Chain</label>
+          <p className="text-xs text-gray-400 text-center">
+            Paste a transaction hash from your USDT or crypto send/receive.
+            We will recover the public key that signed it and verify it matches the sender address.
+            No private key required.
+          </p>
+
+          <label className="block text-sm font-medium text-gray-300">
+            Chain
+          </label>
           <select
-            value={selectedChain}
-            onChange={(e) => setSelectedChain(e.target.value as ChainKey)}
-            className="w-full bg-gray-800 border border-gray-700 rounded-xl px-4 py-2 text-sm focus:outline-none focus:border-blue-500"
+            value={chain}
+            onChange={(e) => setChain(e.target.value as ChainKey)}
+            className="w-full bg-gray-800 border border-gray-700 rounded-xl px-4 py-2 text-sm"
           >
             <option value="ethereum">Ethereum Mainnet</option>
             <option value="bsc">BNB Smart Chain</option>
           </select>
 
-          <label className="block text-sm font-medium text-gray-300">Transaction Hash</label>
+          <label className="block text-sm font-medium text-gray-300">
+            Transaction Hash
+          </label>
           <input
             value={txHash}
             onChange={(e) => setTxHash(e.target.value)}
-            className="w-full bg-gray-800 border border-gray-700 rounded-xl px-4 py-2 text-sm font-mono focus:outline-none focus:border-blue-500"
+            className="w-full bg-gray-800 border border-gray-700 rounded-xl px-4 py-2 text-sm font-mono"
             placeholder="0x..."
           />
 
           <button
-            onClick={fetchTxDetails}
+            onClick={handleBox3}
             disabled={txLoading || !txHash.trim()}
-            className="w-full bg-purple-600 hover:bg-purple-700 disabled:bg-gray-700 py-3 rounded-xl font-semibold transition disabled:cursor-not-allowed"
+            className="w-full bg-purple-600 hover:bg-purple-700 disabled:bg-gray-700 py-3 rounded-xl font-semibold"
           >
-            {txLoading ? 'Fetching...' : 'Fetch Transaction Data'}
+            {txLoading ? 'Verifying...' : 'Recover Public Key &amp; Check Address'}
           </button>
 
           {txError && (
-            <div className="bg-red-900/50 border border-red-700 text-red-300 p-4 rounded-xl text-sm">
+            <div className="bg-red-900/50 border border-red-700 text-red-300 p-3 rounded-xl text-sm">
               {txError}
             </div>
           )}
 
-          {txInfo && (
-            <div className="bg-gray-950 border border-gray-800 p-4 rounded-xl">
-              <pre className="text-xs text-gray-200 font-mono whitespace-pre-wrap break-words leading-relaxed">
-                {JSON.stringify(txInfo, null, 2)}
-              </pre>
+          {txJson && (
+            <div className="bg-gray-950 border border-gray-800 p-4 rounded-xl text-xs font-mono whitespace-pre-wrap break-words">
+              {JSON.stringify(txJson, null, 2)}
+            </div>
+          )}
+
+          {box3Result && (
+            <div className="bg-gray-950 border border-gray-800 p-4 rounded-xl text-xs font-mono whitespace-pre-wrap">
+              {box3Result}
             </div>
           )}
         </section>
 
         <div className="text-center text-xs text-gray-500">
-          Runs 100% in your browser • No data leaves your device
+          Security verification for normal wallets • Box 3 uses only public data (no private keys).
         </div>
       </div>
     </div>
