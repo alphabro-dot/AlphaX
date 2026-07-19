@@ -25,26 +25,36 @@ function hexToBigInt(hex: string): bigint {
 
 // Modular inverse using extended Euclidean algorithm (works for any ES target)
 function modInverse(a: bigint, m: bigint): bigint {
-  let [old_r, r] = [a, m];
-  let [old_s, s] = [1n, 0n];
+  let old_r = a;
+  let r = m;
+  let old_s = BigInt(1);
+  let s = BigInt(0);
 
-  while (r !== 0n) {
+  const ZERO = BigInt(0);
+  const ONE = BigInt(1);
+
+  while (r !== ZERO) {
     const quotient = old_r / r;
-    [old_r, r] = [r, old_r - quotient * r];
-    [old_s, s] = [s, old_s - quotient * s];
+    const new_r = old_r - quotient * r;
+    old_r = r;
+    r = new_r;
+
+    const new_s = old_s - quotient * s;
+    old_s = s;
+    s = new_s;
   }
 
-  if (old_r < 0n) {
+  if (old_r < ZERO) {
     old_r = -old_r;
     old_s = -old_s;
   }
 
-  if (old_r !== 1n) {
+  if (old_r !== ONE) {
     throw new Error('Modular inverse does not exist');
   }
 
   let result = old_s % m;
-  if (result < 0n) result += m;
+  if (result < ZERO) result += m;
   return result;
 }
 
@@ -358,4 +368,4 @@ Match (derived)? ${matchDerived ? 'YES' : 'NO'}`
       </div>
     </div>
   );
-}
+  }
