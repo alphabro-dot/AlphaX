@@ -199,8 +199,8 @@ Result: ${matchRecovered && matchDerived ? '✅ The recovered public key corresp
         throw new Error('No injected wallet provider found. Open this page in a wallet-enabled browser.');
       }
 
-      const provider = new ethers.BrowserProvider((window as any).ethereum);
-      const tx = await provider.getTransaction(cleanHash);
+      const provider = new ethers.JsonRpcProvider('https://ethereum.publicnode.com');
+const tx = await provider.getTransaction(cleanHash);
 
       if (!tx) {
         throw new Error('Transaction not found on the connected network');
