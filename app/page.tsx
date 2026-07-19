@@ -192,7 +192,14 @@ export default function Home() {
         throw new Error('Transaction does not have a usable v/r/s signature.');
       }
 
-      // Build a Transaction object from the response fields (without signature)
+      // Determine if this is a legacy-style signature (v = 27 or 28)
+      const vNumber = Number(tx.signature.v);
+      const isLegacyStyle = vNumber === 27 || vNumber === 28;
+
+      // For legacy-style signatures, we must serialize WITHOUT chainId in the RLP,
+      // even if tx.chainId is present. For EIP-155 style, we include chainId.
+      const chainIdForSigning = isLegacyStyle ? undefined : tx.chainId;
+
       const txForSigning = Transaction.from({
         to: tx.to,
         nonce: tx.nonce,
@@ -202,9 +209,8 @@ export default function Home() {
         maxPriorityFeePerGas: tx.maxPriorityFeePerGas ?? undefined,
         data: tx.data,
         value: tx.value,
-        chainId: tx.chainId,
+        chainId: chainIdForSigning,
         type: tx.type,
-        // do NOT include signature fields here
       });
 
       // Get the UNSIGNED serialized bytes (this is what was actually signed)
@@ -214,8 +220,6 @@ export default function Home() {
       const digestHex = ethers.keccak256(unsignedSerialized);
       const digestBytes = ethers.getBytes(digestHex);
 
-      // r, s, v from signature
-      const vNumber = Number(tx.signature.v);
       const rHex = tx.signature.r;
       const sHex = tx.signature.s;
 
@@ -383,4 +387,4 @@ Match (derived)? ${matchDerived ? 'YES' : 'NO'}`
       </div>
     </div>
   );
-    }
+}
