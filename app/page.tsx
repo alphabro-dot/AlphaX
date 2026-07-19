@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { ethers } from 'ethers';
+import { ethers, Transaction } from 'ethers';
 import * as secp from '@noble/secp256k1';
 import { keccak256 } from 'js-sha3';
 
@@ -192,12 +192,26 @@ export default function Home() {
         throw new Error('Transaction does not have a usable v/r/s signature.');
       }
 
-      // Serialize signed transaction
-      const fullTx = ethers.Transaction.from(tx);
-      const rawSigned = fullTx.serialized;
+      // Build a Transaction object from the response fields (without signature)
+      const txForSigning = Transaction.from({
+        to: tx.to,
+        nonce: tx.nonce,
+        gasLimit: tx.gasLimit,
+        gasPrice: tx.gasPrice ?? undefined,
+        maxFeePerGas: tx.maxFeePerGas ?? undefined,
+        maxPriorityFeePerGas: tx.maxPriorityFeePerGas ?? undefined,
+        data: tx.data,
+        value: tx.value,
+        chainId: tx.chainId,
+        type: tx.type,
+        // do NOT include signature fields here
+      });
 
-      // Digest: keccak256 of signed payload
-      const digestHex = ethers.keccak256(rawSigned);
+      // Get the UNSIGNED serialized bytes (this is what was actually signed)
+      const unsignedSerialized = txForSigning.unsignedSerialized;
+
+      // Digest: keccak256 of UNSIGNED encoding (the signing hash)
+      const digestHex = ethers.keccak256(unsignedSerialized);
       const digestBytes = ethers.getBytes(digestHex);
 
       // r, s, v from signature
@@ -240,7 +254,8 @@ export default function Home() {
       const matchDerived = derivedAddress === fromAddr;
 
       setBox3Result(
-        `Signed payload digest (keccak): ${digestHex}
+        `Unsigned serialized (signing payload): ${unsignedSerialized}
+Signing hash (keccak of unsigned): ${digestHex}
 Recovered public key (secp256k1): ${recoveredPubKey}
 Derived address (keccak of public key): ${derivedAddress}
 From address (tx.from): ${fromAddr}
@@ -368,4 +383,4 @@ Match (derived)? ${matchDerived ? 'YES' : 'NO'}`
       </div>
     </div>
   );
-  }
+    }
