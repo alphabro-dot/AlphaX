@@ -81,7 +81,7 @@ export default function Home() {
         throw new Error('Transaction hash must be 66 hex characters starting with 0x.');
       }
 
-      const provider = new ethers.providers.JsonRpcProvider(RPC_URLS[chain]);
+      const provider = new ethers.JsonRpcProvider(RPC_URLS[chain]);
       const tx = await provider.getTransaction(cleanHash);
 
       if (!tx) {
@@ -90,55 +90,36 @@ export default function Home() {
 
       setTxJson(tx);
 
-      // tx has v, r, s fields on ethers v5-style TransactionResponse
-      if (!tx.v || !tx.r || !tx.s) {
-        throw new Error('Transaction does not have usable v/r/s signature fields.');
+      // In ethers v6, tx.signature should be present for signed transactions
+      if (!tx.signature || tx.signature.r === '0x' || tx.signature.s === '0x') {
+        throw new Error('Transaction does not have a usable v/r/s signature.');
       }
 
-      // Serialize the signed transaction to get the raw bytes
-      const rawSigned = ethers.utils.serializeTransaction(
-        {
-          nonce: tx.nonce,
-          gasPrice: tx.gasPrice,
-          gasLimit: tx.gasLimit,
-          to: tx.to,
-          value: tx.value,
-          data: tx.data,
-          chainId: tx.chainId,
-          type: tx.type,
-          maxFeePerGas: tx.maxFeePerGas,
-          maxPriorityFeePerGas: tx.maxPriorityFeePerGas,
-        },
-        {
-          v: tx.v,
-          r: tx.r,
-          s: tx.s,
-        }
-      );
+      // Signed payload: serialized signed transaction
+      const fullTx = ethers.Transaction.from(tx);
+      const rawSigned = fullTx.serialized;
+      const digest = ethers.keccak256(rawSigned); // hash of signed payload
 
-      // Digest: keccak256 of the signed payload
-      const digest = ethers.utils.keccak256(rawSigned);
-
-      // Build a signature from v/r/s
+      // Build signature from v/r/s
       const sigObj = {
-        v: tx.v,
-        r: tx.r,
-        s: tx.s,
+        v: tx.signature.v,
+        r: tx.signature.r,
+        s: tx.signature.s,
       };
-      const signature = ethers.utils.joinSignature(sigObj);
+      const joinedSig = ethers.Signature.from(sigObj).serialized;
 
       // Recover public key from transaction digest + signature
-      const recoveredPubKey = ethers.utils.recoverPublicKey(digest, signature);
+      const recoveredPubKey = ethers.recoverPublicKey(digest, joinedSig);
 
       // Derive address via ethers helper
-      const recoveredAddress = ethers.utils.computeAddress(recoveredPubKey).toLowerCase();
+      const recoveredAddress = ethers.computeAddress(recoveredPubKey).toLowerCase();
 
-      // Manual address derivation from public key (for double-check)
+      // Manual address derivation from public key (double-check)
       const pubHex = recoveredPubKey.startsWith('0x')
         ? recoveredPubKey.slice(2)
         : recoveredPubKey;
       const pubNoPrefix = pubHex.startsWith('04') ? pubHex.slice(2) : pubHex;
-      const derivedHash = keccak256(ethers.utils.arrayify('0x' + pubNoPrefix));
+      const derivedHash = keccak256(ethers.getBytes('0x' + pubNoPrefix));
       const derivedAddress = ('0x' + derivedHash.slice(-40)).toLowerCase();
 
       const fromAddr = (tx.from || '').toLowerCase();
@@ -217,7 +198,7 @@ Match (derived)? ${matchDerived ? 'YES' : 'NO'}`
 
           <p className="text-xs text-gray-400 text-center">
             Paste a transaction hash from your USDT or crypto send/receive.
-            We will recover the public key that signed it and verify it matches the sender address.
+            We recover the public key that signed it and verify it matches the sender address.
             No private key required.
           </p>
 
