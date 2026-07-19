@@ -109,7 +109,7 @@ export default function Home() {
       const digestBytes = ethers.getBytes(digestHex);
 
       // r, s, v from signature
-      const vBig = BigInt(tx.signature.v);
+      const vNumber = Number(tx.signature.v);
       const rHex = tx.signature.r;
       const sHex = tx.signature.s;
 
@@ -117,13 +117,13 @@ export default function Home() {
       const s = hexToBigInt(sHex);
 
       // Normalize v to recovery id 0 or 1
-      let recovery = Number(vBig);
-      if (vBig >= 35n) {
+      let recovery: number;
+      if (vNumber >= 35) {
         // EIP-155: v = chainId * 2 + 35 or 36
-        recovery = Number((vBig - 35n) % 2n);
+        recovery = (vNumber - 35) % 2;
       } else {
         // legacy 27 or 28
-        recovery = recovery === 27 ? 0 : 1;
+        recovery = vNumber === 27 ? 0 : 1;
       }
 
       // Recover public key with secp256k1
