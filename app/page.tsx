@@ -5,6 +5,8 @@ import * as secp from '@noble/secp256k1';
 import { keccak256 } from 'js-sha3';
 import { ethers } from 'ethers';
 
+type ChainKey = 'ethereum' | 'bsc';
+
 type TxInfo = {
   hash: string;
   from: string;
@@ -26,6 +28,16 @@ type TxInfo = {
   decodedValue: string | null;
 };
 
+const RPC_URLS: Record<ChainKey, string> = {
+  ethereum: 'https://ethereum.publicnode.com',
+  bsc: 'https://bsc.publicnode.com'
+};
+
+const CHAIN_LABELS: Record<ChainKey, string> = {
+  ethereum: 'Ethereum Mainnet',
+  bsc: 'BNB Smart Chain'
+};
+
 export default function Home() {
   const [privateKey, setPrivateKey] = useState('');
   const [compressedPubKey, setCompressedPubKey] = useState('');
@@ -41,6 +53,7 @@ export default function Home() {
   const [verifyResult, setVerifyResult] = useState('');
 
   const [txHash, setTxHash] = useState('');
+  const [selectedChain, setSelectedChain] = useState<ChainKey>('ethereum');
   const [txLoading, setTxLoading] = useState(false);
   const [txError, setTxError] = useState('');
   const [txInfo, setTxInfo] = useState<TxInfo | null>(null);
@@ -191,11 +204,11 @@ Result: ${matchRecovered && matchDerived ? '✅ The recovered public key corresp
         throw new Error('Transaction hash must be a 66-character hex string starting with 0x');
       }
 
-      const provider = new ethers.JsonRpcProvider('https://ethereum.publicnode.com');
+      const provider = new ethers.JsonRpcProvider(RPC_URLS[selectedChain]);
       const tx = await provider.getTransaction(cleanHash);
 
       if (!tx) {
-        throw new Error('Transaction not found on Ethereum mainnet');
+        throw new Error(`Transaction not found on ${CHAIN_LABELS[selectedChain]}`);
       }
 
       const input = tx.data || '';
@@ -310,9 +323,7 @@ Result: ${matchRecovered && matchDerived ? '✅ The recovered public key corresp
             Box 2 — Wallet Address + Message + Signature → Public Key → Address Check
           </h2>
 
-          <label className="block text-sm font-medium text-gray-300">
-            Wallet Address (0x...)
-          </label>
+          <label className="block text-sm font-medium text-gray-300">Wallet Address (0x...)</label>
           <input
             value={verifyAddress}
             onChange={(e) => setVerifyAddress(e.target.value)}
@@ -330,9 +341,7 @@ Result: ${matchRecovered && matchDerived ? '✅ The recovered public key corresp
             placeholder="Hello from my key tool!"
           />
 
-          <label className="block text-sm font-medium text-gray-300">
-            Signature (hex)
-          </label>
+          <label className="block text-sm font-medium text-gray-300">Signature (hex)</label>
           <textarea
             value={verifySignature}
             onChange={(e) => setVerifySignature(e.target.value)}
@@ -362,9 +371,17 @@ Result: ${matchRecovered && matchDerived ? '✅ The recovered public key corresp
             Box 3 — Transaction Hash → Fields, v/r/s, and Input Decode
           </h2>
 
-          <label className="block text-sm font-medium text-gray-300">
-            Transaction Hash
-          </label>
+          <label className="block text-sm font-medium text-gray-300">Chain</label>
+          <select
+            value={selectedChain}
+            onChange={(e) => setSelectedChain(e.target.value as ChainKey)}
+            className="w-full bg-gray-800 border border-gray-700 rounded-xl px-4 py-2 text-sm focus:outline-none focus:border-blue-500"
+          >
+            <option value="ethereum">Ethereum Mainnet</option>
+            <option value="bsc">BNB Smart Chain</option>
+          </select>
+
+          <label className="block text-sm font-medium text-gray-300">Transaction Hash</label>
           <input
             value={txHash}
             onChange={(e) => setTxHash(e.target.value)}
