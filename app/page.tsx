@@ -21,8 +21,6 @@ type TxInfo = {
   signatureV: string;
   signatureR: string;
   signatureS: string;
-  unsignedTx: string;
-  txHashComputed: string;
   methodId: string;
   decodedTo: string | null;
   decodedValue: string | null;
@@ -141,8 +139,7 @@ export default function Home() {
       }
 
       const digest = ethers.hashMessage(msgInput);
-      const digestBytes = ethers.getBytes(digest);
-      const recoveredPubKey = ethers.SigningKey.recoverPublicKey(digestBytes, sigInput);
+      const recoveredPubKey = ethers.SigningKey.recoverPublicKey(digest, sigInput);
       const recoveredAddress = ethers.computeAddress(recoveredPubKey).toLowerCase();
 
       const pubHex = recoveredPubKey.startsWith('0x') ? recoveredPubKey.slice(2) : recoveredPubKey;
@@ -154,7 +151,7 @@ export default function Home() {
       const matchRecovered = recoveredAddress === expectedAddress;
       const matchDerived = derivedAddress === expectedAddress;
 
-      const result =
+      setVerifyResult(
         `1) Inputs
    Wallet address: ${addrInput}
    Message: "${msgInput}"
@@ -176,9 +173,8 @@ export default function Home() {
    Match recoveredAddress? ${matchRecovered ? 'YES' : 'NO'}
    Match derivedAddress? ${matchDerived ? 'YES' : 'NO'}
 
-Result: ${matchRecovered && matchDerived ? '✅ The recovered public key corresponds to the given wallet address.' : '❌ The signature does NOT belong to the given wallet address.'}`;
-
-      setVerifyResult(result);
+Result: ${matchRecovered && matchDerived ? '✅ The recovered public key corresponds to the given wallet address.' : '❌ The signature does NOT belong to the given wallet address.'}`
+      );
     } catch (err: any) {
       setVerifyResult(`Verification failed: ${err?.message || String(err)}`);
     }
@@ -195,44 +191,11 @@ Result: ${matchRecovered && matchDerived ? '✅ The recovered public key corresp
         throw new Error('Transaction hash must be a 66-character hex string starting with 0x');
       }
 
-      if (typeof window === 'undefined' || !(window as any).ethereum) {
-        throw new Error('No injected wallet provider found. Open this page in a wallet-enabled browser.');
-      }
-
       const provider = new ethers.JsonRpcProvider('https://ethereum.publicnode.com');
-const tx = await provider.getTransaction(cleanHash);
+      const tx = await provider.getTransaction(cleanHash);
 
       if (!tx) {
-        throw new Error('Transaction not found on the connected network');
-      }
-
-      const sig = tx.signature;
-      const gasPrice = tx.gasPrice ? tx.gasPrice.toString() : null;
-      const maxFeePerGas = tx.maxFeePerGas ? tx.maxFeePerGas.toString() : null;
-      const maxPriorityFeePerGas = tx.maxPriorityFeePerGas ? tx.maxPriorityFeePerGas.toString() : null;
-
-      let unsignedTx = '';
-      let txHashComputed = '';
-
-      try {
-        const unsigned = ethers.Transaction.from({
-          type: tx.type,
-          to: tx.to,
-          nonce: tx.nonce,
-          gasLimit: tx.gasLimit,
-          gasPrice: tx.gasPrice ?? undefined,
-          maxFeePerGas: tx.maxFeePerGas ?? undefined,
-          maxPriorityFeePerGas: tx.maxPriorityFeePerGas ?? undefined,
-          value: tx.value,
-          data: tx.data,
-          chainId: tx.chainId
-        });
-
-        unsignedTx = unsigned.unsignedSerialized;
-        txHashComputed = ethers.keccak256(unsignedTx);
-      } catch {
-        unsignedTx = 'Unable to reconstruct unsigned transaction with current tx type';
-        txHashComputed = 'Unable to compute';
+        throw new Error('Transaction not found on Ethereum mainnet');
       }
 
       const input = tx.data || '';
@@ -246,15 +209,17 @@ const tx = await provider.getTransaction(cleanHash);
         decodedValue = BigInt('0x' + input.slice(74, 138)).toString();
       }
 
+      const sig = tx.signature;
+
       setTxInfo({
         hash: tx.hash,
         from: tx.from || '',
         to: tx.to,
         nonce: tx.nonce,
         gasLimit: tx.gasLimit.toString(),
-        gasPrice,
-        maxFeePerGas,
-        maxPriorityFeePerGas,
+        gasPrice: tx.gasPrice ? tx.gasPrice.toString() : null,
+        maxFeePerGas: tx.maxFeePerGas ? tx.maxFeePerGas.toString() : null,
+        maxPriorityFeePerGas: tx.maxPriorityFeePerGas ? tx.maxPriorityFeePerGas.toString() : null,
         value: tx.value.toString(),
         data: tx.data,
         chainId: tx.chainId.toString(),
@@ -262,8 +227,6 @@ const tx = await provider.getTransaction(cleanHash);
         signatureV: sig?.v != null ? String(sig.v) : '',
         signatureR: sig?.r || '',
         signatureS: sig?.s || '',
-        unsignedTx,
-        txHashComputed,
         methodId,
         decodedTo,
         decodedValue
