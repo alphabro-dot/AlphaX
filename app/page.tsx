@@ -81,6 +81,7 @@ export default function Home() {
         throw new Error('Transaction hash must be 66 hex characters starting with 0x.');
       }
 
+      // v6 provider constructor
       const provider = new ethers.JsonRpcProvider(RPC_URLS[chain]);
       const tx = await provider.getTransaction(cleanHash);
 
@@ -90,49 +91,62 @@ export default function Home() {
 
       setTxJson(tx);
 
-      // In ethers v6, tx.signature should be present for signed transactions
+      // In ethers v6, signed transactions expose tx.signature
       if (!tx.signature || tx.signature.r === '0x' || tx.signature.s === '0x') {
         throw new Error('Transaction does not have a usable v/r/s signature.');
       }
 
-      // Signed payload: serialized signed transaction
+      // Serialize the signed transaction to bytes
       const fullTx = ethers.Transaction.from(tx);
       const rawSigned = fullTx.serialized;
-      const digest = ethers.keccak256(rawSigned); // hash of signed payload
 
-      // Build signature from v/r/s
-      const sigObj = {
-        v: tx.signature.v,
-        r: tx.signature.r,
-        s: tx.signature.s,
-      };
-      const joinedSig = ethers.Signature.from(sigObj).serialized;
+      // Digest: keccak256 of the signed payload
+      const digestHex = ethers.keccak256(rawSigned);
+      const digestBytes = ethers.getBytes(digestHex);
 
-      // Recover public key from transaction digest + signature
-      const recoveredPubKey = ethers.recoverPublicKey(digest, joinedSig);
+      // Extract r, s, v from tx.signature
+      const v = BigInt(tx.signature.v);
+      const rHex = tx.signature.r;
+      const sHex = tx.signature.s;
 
-      // Derive address via ethers helper
-      const recoveredAddress = ethers.computeAddress(recoveredPubKey).toLowerCase();
+      const r = secp.utils.hexToBigInt(rHex);
+      const s = secp.utils.hexToBigInt(sHex);
 
-      // Manual address derivation from public key (double-check)
-      const pubHex = recoveredPubKey.startsWith('0x')
-        ? recoveredPubKey.slice(2)
-        : recoveredPubKey;
-      const pubNoPrefix = pubHex.startsWith('04') ? pubHex.slice(2) : pubHex;
-      const derivedHash = keccak256(ethers.getBytes('0x' + pubNoPrefix));
+      // Normalize v to recovery id (0 or 1) for secp256k1
+      // Ethereum v = 27 or 28 (legacy) or includes chainId, so we reduce it.
+      let recovery = Number(v);
+      if (recovery >= 35n) {
+        // EIP-155 style v: v = chainId * 2 + 35 or 36
+        // reduce to 0 or 1
+        recovery = Number((v - 35n) % 2n);
+      } else {
+        // legacy v: 27 or 28
+        recovery = recovery === 27 ? 0 : 1;
+      }
+
+      // Recover public key using secp256k1
+      const sig = new secp.Signature(r, s);
+      const recoveredPubBytes = sig.recoverPublicKey(digestBytes, recovery, false); // uncompressed
+
+      const recoveredPubKey =
+        '0x' +
+        Array.from(recoveredPubBytes)
+          .map((b) => b.toString(16).padStart(2, '0'))
+          .join('');
+
+      // Derive address from recovered public key (manual)
+      const pubNoPrefix = recoveredPubBytes.slice(1); // drop 0x04
+      const derivedHash = keccak256(pubNoPrefix);
       const derivedAddress = ('0x' + derivedHash.slice(-40)).toLowerCase();
 
       const fromAddr = (tx.from || '').toLowerCase();
-      const matchRecovered = recoveredAddress === fromAddr;
       const matchDerived = derivedAddress === fromAddr;
 
       setBox3Result(
-        `Signed payload digest (tx hash-like): ${digest}
-Recovered public key: ${recoveredPubKey}
-Recovered address (ethers): ${recoveredAddress}
+        `Signed payload digest (keccak): ${digestHex}
+Recovered public key (secp256k1): ${recoveredPubKey}
 Derived address (keccak of public key): ${derivedAddress}
 From address (tx.from): ${fromAddr}
-Match (recovered)? ${matchRecovered ? 'YES' : 'NO'}
 Match (derived)? ${matchDerived ? 'YES' : 'NO'}`
       );
     } catch (err: any) {
