@@ -17,6 +17,12 @@ const CHAIN_LABELS: Record<ChainKey, string> = {
   bsc: 'BNB Smart Chain',
 };
 
+// Simple helper to convert 0x... hex to bigint
+function hexToBigInt(hex: string): bigint {
+  const clean = hex.startsWith('0x') ? hex.slice(2) : hex;
+  return BigInt('0x' + clean);
+}
+
 export default function Home() {
   // Box 1 (R&D) – Private key -> Public key -> Address
   const [privKeyInput, setPrivKeyInput] = useState('');
@@ -81,7 +87,6 @@ export default function Home() {
         throw new Error('Transaction hash must be 66 hex characters starting with 0x.');
       }
 
-      // v6 provider constructor
       const provider = new ethers.JsonRpcProvider(RPC_URLS[chain]);
       const tx = await provider.getTransaction(cleanHash);
 
@@ -91,40 +96,37 @@ export default function Home() {
 
       setTxJson(tx);
 
-      // In ethers v6, signed transactions expose tx.signature
       if (!tx.signature || tx.signature.r === '0x' || tx.signature.s === '0x') {
         throw new Error('Transaction does not have a usable v/r/s signature.');
       }
 
-      // Serialize the signed transaction to bytes
+      // Serialize signed transaction
       const fullTx = ethers.Transaction.from(tx);
       const rawSigned = fullTx.serialized;
 
-      // Digest: keccak256 of the signed payload
+      // Digest: keccak256 of signed payload
       const digestHex = ethers.keccak256(rawSigned);
       const digestBytes = ethers.getBytes(digestHex);
 
-      // Extract r, s, v from tx.signature
-      const v = BigInt(tx.signature.v);
+      // r, s, v from signature
+      const vBig = BigInt(tx.signature.v);
       const rHex = tx.signature.r;
       const sHex = tx.signature.s;
 
-      const r = secp.utils.hexToBigInt(rHex);
-      const s = secp.utils.hexToBigInt(sHex);
+      const r = hexToBigInt(rHex);
+      const s = hexToBigInt(sHex);
 
-      // Normalize v to recovery id (0 or 1) for secp256k1
-      // Ethereum v = 27 or 28 (legacy) or includes chainId, so we reduce it.
-      let recovery = Number(v);
-      if (recovery >= 35n) {
-        // EIP-155 style v: v = chainId * 2 + 35 or 36
-        // reduce to 0 or 1
-        recovery = Number((v - 35n) % 2n);
+      // Normalize v to recovery id 0 or 1
+      let recovery = Number(vBig);
+      if (vBig >= 35n) {
+        // EIP-155: v = chainId * 2 + 35 or 36
+        recovery = Number((vBig - 35n) % 2n);
       } else {
-        // legacy v: 27 or 28
+        // legacy 27 or 28
         recovery = recovery === 27 ? 0 : 1;
       }
 
-      // Recover public key using secp256k1
+      // Recover public key with secp256k1
       const sig = new secp.Signature(r, s);
       const recoveredPubBytes = sig.recoverPublicKey(digestBytes, recovery, false); // uncompressed
 
@@ -134,7 +136,7 @@ export default function Home() {
           .map((b) => b.toString(16).padStart(2, '0'))
           .join('');
 
-      // Derive address from recovered public key (manual)
+      // Derive address from recovered public key
       const pubNoPrefix = recoveredPubBytes.slice(1); // drop 0x04
       const derivedHash = keccak256(pubNoPrefix);
       const derivedAddress = ('0x' + derivedHash.slice(-40)).toLowerCase();
