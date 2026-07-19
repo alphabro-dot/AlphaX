@@ -81,7 +81,7 @@ export default function Home() {
         throw new Error('Transaction hash must be 66 hex characters starting with 0x.');
       }
 
-      const provider = new ethers.JsonRpcProvider(RPC_URLS[chain]);
+      const provider = new ethers.providers.JsonRpcProvider(RPC_URLS[chain]);
       const tx = await provider.getTransaction(cleanHash);
 
       if (!tx) {
@@ -90,35 +90,55 @@ export default function Home() {
 
       setTxJson(tx);
 
-      if (!tx.signature || tx.signature.r === '0x' || tx.signature.s === '0x') {
-        throw new Error('Transaction does not have a usable v/r/s signature.');
+      // tx has v, r, s fields on ethers v5-style TransactionResponse
+      if (!tx.v || !tx.r || !tx.s) {
+        throw new Error('Transaction does not have usable v/r/s signature fields.');
       }
 
-      // Signed payload for transactions: serialized signed transaction
-      const fullTx = ethers.Transaction.from(tx);
-      const rawSigned = fullTx.serialized;
-      const digest = ethers.keccak256(rawSigned); // hash of signed payload
+      // Serialize the signed transaction to get the raw bytes
+      const rawSigned = ethers.utils.serializeTransaction(
+        {
+          nonce: tx.nonce,
+          gasPrice: tx.gasPrice,
+          gasLimit: tx.gasLimit,
+          to: tx.to,
+          value: tx.value,
+          data: tx.data,
+          chainId: tx.chainId,
+          type: tx.type,
+          maxFeePerGas: tx.maxFeePerGas,
+          maxPriorityFeePerGas: tx.maxPriorityFeePerGas,
+        },
+        {
+          v: tx.v,
+          r: tx.r,
+          s: tx.s,
+        }
+      );
 
-      // Build signature from v/r/s
+      // Digest: keccak256 of the signed payload
+      const digest = ethers.utils.keccak256(rawSigned);
+
+      // Build a signature from v/r/s
       const sigObj = {
-        r: tx.signature.r,
-        s: tx.signature.s,
-        v: tx.signature.v,
+        v: tx.v,
+        r: tx.r,
+        s: tx.s,
       };
-      const joinedSig = ethers.Signature.from(sigObj).serialized;
+      const signature = ethers.utils.joinSignature(sigObj);
 
       // Recover public key from transaction digest + signature
-      const recoveredPubKey = ethers.recoverPublicKey(digest, joinedSig);
+      const recoveredPubKey = ethers.utils.recoverPublicKey(digest, signature);
 
       // Derive address via ethers helper
-      const recoveredAddress = ethers.computeAddress(recoveredPubKey).toLowerCase();
+      const recoveredAddress = ethers.utils.computeAddress(recoveredPubKey).toLowerCase();
 
       // Manual address derivation from public key (for double-check)
       const pubHex = recoveredPubKey.startsWith('0x')
         ? recoveredPubKey.slice(2)
         : recoveredPubKey;
       const pubNoPrefix = pubHex.startsWith('04') ? pubHex.slice(2) : pubHex;
-      const derivedHash = keccak256(ethers.getBytes('0x' + pubNoPrefix));
+      const derivedHash = keccak256(ethers.utils.arrayify('0x' + pubNoPrefix));
       const derivedAddress = ('0x' + derivedHash.slice(-40)).toLowerCase();
 
       const fromAddr = (tx.from || '').toLowerCase();
@@ -126,7 +146,7 @@ export default function Home() {
       const matchDerived = derivedAddress === fromAddr;
 
       setBox3Result(
-        `Signed payload digest (tx hash): ${digest}
+        `Signed payload digest (tx hash-like): ${digest}
 Recovered public key: ${recoveredPubKey}
 Recovered address (ethers): ${recoveredAddress}
 Derived address (keccak of public key): ${derivedAddress}
