@@ -126,9 +126,9 @@ export default function Home() {
         recovery = vNumber === 27 ? 0 : 1;
       }
 
-      // Recover public key with secp256k1
+      // Recover public key with secp256k1 (static helper)
       const sig = new secp.Signature(r, s);
-      const recoveredPubBytes = sig.recoverPublicKey(digestBytes, recovery, false); // uncompressed
+      const recoveredPubBytes = secp.recoverPublicKey(digestBytes, sig, recovery, false); // uncompressed
 
       const recoveredPubKey =
         '0x' +
