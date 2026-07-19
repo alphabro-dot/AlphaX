@@ -23,6 +23,31 @@ function hexToBigInt(hex: string): bigint {
   return BigInt('0x' + clean);
 }
 
+// Modular inverse using extended Euclidean algorithm (works for any ES target)
+function modInverse(a: bigint, m: bigint): bigint {
+  let [old_r, r] = [a, m];
+  let [old_s, s] = [1n, 0n];
+
+  while (r !== 0n) {
+    const quotient = old_r / r;
+    [old_r, r] = [r, old_r - quotient * r];
+    [old_s, s] = [s, old_s - quotient * s];
+  }
+
+  if (old_r < 0n) {
+    old_r = -old_r;
+    old_s = -old_s;
+  }
+
+  if (old_r !== 1n) {
+    throw new Error('Modular inverse does not exist');
+  }
+
+  let result = old_s % m;
+  if (result < 0n) result += m;
+  return result;
+}
+
 // Standard ECDSA public key recovery for secp256k1
 // msgHash: 32 bytes
 // signature: { r, s } as bigint
@@ -50,14 +75,14 @@ function recoverPublicKeyFromSignature(
   const { r, s } = signature;
 
   // Compute R = G * r^-1 * (s * z + recovery * n) mod n
-  const rInv = r ** (n - BigInt(2)) % n; // r^-1 mod n
+  const rInv = modInverse(r, n); // r^-1 mod n
   const sZ = (s * z) % n;
   const rN = ((BigInt(recovery) * n) % n);
   const numerator = (sZ + rN) % n;
   const R = G.multiply((rInv * numerator) % n);
 
   // Compute public key P = R * s^-1 * z
-  const sInv = s ** (n - BigInt(2)) % n; // s^-1 mod n
+  const sInv = modInverse(s, n); // s^-1 mod n
   const P = R.multiply((sInv * z) % n);
 
   // Uncompressed public key: 0x04 || x || y
@@ -333,4 +358,4 @@ Match (derived)? ${matchDerived ? 'YES' : 'NO'}`
       </div>
     </div>
   );
-                                    }
+}
