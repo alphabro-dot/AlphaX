@@ -172,16 +172,23 @@ export default function Home() {
         recovery = vNumber === 27 ? 0 : 1;
       }
 
-      // Recover public key using @noble/secp256k1 v2 (uncompressed)
-      const recoveredPubBytesUncompressed = recoverPublicKeyFromSignature(
-        digestBytes,
-        { r, s },
-        recovery
-      );
+      // Recover public key using @noble/secp256k1 v2
+      const sig = new secp.Signature(r, s, recovery);
+      const recoveredPoint = sig.recoverPublicKey(digestBytes);
 
+      // Uncompressed public key
+      const recoveredPubBytesUncompressed = recoveredPoint.toRawBytes(false);
       const recoveredPubKeyUncompressed =
         '0x' +
         Array.from(recoveredPubBytesUncompressed)
+          .map((b) => b.toString(16).padStart(2, '0'))
+          .join('');
+
+      // Compressed public key
+      const recoveredPubBytesCompressed = recoveredPoint.toRawBytes(true);
+      const recoveredPubKeyCompressed =
+        '0x' +
+        Array.from(recoveredPubBytesCompressed)
           .map((b) => b.toString(16).padStart(2, '0'))
           .join('');
 
@@ -189,29 +196,6 @@ export default function Home() {
       const pubNoPrefix = recoveredPubBytesUncompressed.slice(1); // drop 0x04
       const derivedHash = keccak256(pubNoPrefix);
       const derivedAddress = ('0x' + derivedHash.slice(-40)).toLowerCase();
-
-      // Also compute compressed public key from the recovered point
-      const x = hexToBigInt(
-        '0x' +
-          Array.from(recoveredPubBytesUncompressed.slice(1, 33))
-            .map((b) => b.toString(16).padStart(2, '0'))
-            .join('')
-      );
-      const y = hexToBigInt(
-        '0x' +
-          Array.from(recoveredPubBytesUncompressed.slice(33, 65))
-            .map((b) => b.toString(16).padStart(2, '0'))
-            .join('')
-      );
-
-      const point = new secp.Point(x, y);
-      const recoveredPubBytesCompressed = point.toRawBytes(true); // true = compressed
-
-      const recoveredPubKeyCompressed =
-        '0x' +
-        Array.from(recoveredPubBytesCompressed)
-          .map((b) => b.toString(16).padStart(2, '0'))
-          .join('');
 
       const fromAddr = (txResp.from || '').toLowerCase();
 
