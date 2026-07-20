@@ -23,42 +23,7 @@ function hexToBigInt(hex: string): bigint {
   return BigInt('0x' + clean);
 }
 
-// Modular inverse using extended Euclidean algorithm (works for any ES target)
-function modInverse(a: bigint, m: bigint): bigint {
-  let old_r = a;
-  let r = m;
-  let old_s = BigInt(1);
-  let s = BigInt(0);
-
-  const ZERO = BigInt(0);
-  const ONE = BigInt(1);
-
-  while (r !== ZERO) {
-    const quotient = old_r / r;
-    const new_r = old_r - quotient * r;
-    old_r = r;
-    r = new_r;
-
-    const new_s = old_s - quotient * s;
-    old_s = s;
-    s = new_s;
-  }
-
-  if (old_r < ZERO) {
-    old_r = -old_r;
-    old_s = -old_s;
-  }
-
-  if (old_r !== ONE) {
-    throw new Error('Modular inverse does not exist');
-  }
-
-  let result = old_s % m;
-  if (result < ZERO) result += m;
-  return result;
-}
-
-// Standard ECDSA public key recovery for secp256k1
+// Standard ECDSA public key recovery using @noble/secp256k1
 // msgHash: 32 bytes
 // signature: { r, s } as bigint
 // recovery: 0 or 1
@@ -68,51 +33,14 @@ function recoverPublicKeyFromSignature(
   signature: { r: bigint; s: bigint },
   recovery: number
 ): Uint8Array {
-  const n = secp.CURVE.n!;
-  const G = secp.Point.BASE;
-
   if (msgHash.length !== 32) {
     throw new Error('msgHash must be 32 bytes');
   }
 
-  const z = hexToBigInt(
-    '0x' +
-      Array.from(msgHash)
-        .map((b) => b.toString(16).padStart(2, '0'))
-        .join('')
-  );
-
-  const { r, s } = signature;
-
-  // Compute R = G * r^-1 * (s * z + recovery * n) mod n
-  const rInv = modInverse(r, n); // r^-1 mod n
-  const sZ = (s * z) % n;
-  const rN = ((BigInt(recovery) * n) % n);
-  const numerator = (sZ + rN) % n;
-  const R = G.multiply((rInv * numerator) % n);
-
-  // Compute public key P = R * s^-1 * z
-  const sInv = modInverse(s, n); // s^-1 mod n
-  const P = R.multiply((sInv * z) % n);
-
-  // Uncompressed public key: 0x04 || x || y
-  const xBytes = toFixedHex(P.x, 32);
-  const yBytes = toFixedHex(P.y, 32);
-
-  const pubBytes = new Uint8Array(65);
-  pubBytes[0] = 0x04;
-  pubBytes.set(xBytes, 1);
-  pubBytes.set(yBytes, 33);
-  return pubBytes;
-}
-
-function toFixedHex(value: bigint, length: number): Uint8Array {
-  const hex = value.toString(16).padStart(length * 2, '0');
-  const bytes = new Uint8Array(length);
-  for (let i = 0; i < length; i++) {
-    bytes[i] = parseInt(hex.slice(i * 2, i * 2 + 2), 16);
-  }
-  return bytes;
+  const sig = new secp.Signature(signature.r, signature.s);
+  const publicKey = sig.recoverPublicKey(msgHash, recovery);
+  const point = publicKey.toRawBytes(false); // false = uncompressed (0x04 || x || y)
+  return point;
 }
 
 export default function Home() {
@@ -232,7 +160,7 @@ export default function Home() {
         recovery = vNumber === 27 ? 0 : 1;
       }
 
-      // Recover public key using our custom implementation
+      // Recover public key using @noble/secp256k1's built-in recovery
       const recoveredPubBytes = recoverPublicKeyFromSignature(
         digestBytes,
         { r, s },
@@ -396,4 +324,4 @@ Match (ethers.recoverAddress vs tx.from)? ${matchEthers ? 'YES' : 'NO'}`
       </div>
     </div>
   );
-        }
+  }
