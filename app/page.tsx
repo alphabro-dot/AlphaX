@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { ethers, Transaction, Signature } from 'ethers';
+import { ethers, Transaction, Signature as EthersSignature } from 'ethers';
 import * as secp from '@noble/secp256k1';
 import { keccak256 } from 'js-sha3';
 
@@ -23,7 +23,7 @@ function hexToBigInt(hex: string): bigint {
   return BigInt('0x' + clean);
 }
 
-// Standard ECDSA public key recovery using @noble/secp256k1
+// Standard ECDSA public key recovery using @noble/secp256k1 v2
 // msgHash: 32 bytes
 // signature: { r, s } as bigint
 // recovery: 0 or 1
@@ -37,16 +37,17 @@ function recoverPublicKeyFromSignature(
     throw new Error('msgHash must be 32 bytes');
   }
 
-  const sig = new secp.Signature(signature.r, signature.s);
-  const publicKey = sig.recoverPublicKey(msgHash, recovery);
-  const point = publicKey.toRawBytes(false); // false = uncompressed (0x04 || x || y)
-  return point;
+  const sig = new secp.Signature(signature.r, signature.s, recovery);
+  const point = sig.recoverPublicKey(msgHash);
+  const pubBytes = point.toRawBytes(false); // false = uncompressed (0x04 || x || y)
+  return pubBytes;
 }
 
 export default function Home() {
   // Box 1 (R&D) – Private key -> Public key -> Address
   const [privKeyInput, setPrivKeyInput] = useState('');
-  const [box1PubKey, setBox1PubKey] = useState('');
+  const [box1PubKeyUncompressed, setBox1PubKeyUncompressed] = useState('');
+  const [box1PubKeyCompressed, setBox1PubKeyCompressed] = useState('');
   const [box1Address, setBox1Address] = useState('');
   const [box1Error, setBox1Error] = useState('');
 
@@ -62,7 +63,8 @@ export default function Home() {
 
   const handleBox1 = async () => {
     setBox1Error('');
-    setBox1PubKey('');
+    setBox1PubKeyUncompressed('');
+    setBox1PubKeyCompressed('');
     setBox1Address('');
 
     try {
@@ -76,17 +78,27 @@ export default function Home() {
         privBytes[i] = parseInt(clean.slice(i * 2, i * 2 + 2), 16);
       }
 
-      const pub = secp.getPublicKey(privBytes, false); // uncompressed public key
-      const pubHex =
+      // Uncompressed public key
+      const pubUncompressed = secp.getPublicKey(privBytes, false);
+      const pubHexUncompressed =
         '0x' +
-        Array.from(pub)
+        Array.from(pubUncompressed)
           .map((b) => b.toString(16).padStart(2, '0'))
           .join('');
 
-      const hashHex = keccak256(pub.slice(1));
+      // Compressed public key
+      const pubCompressed = secp.getPublicKey(privBytes, true);
+      const pubHexCompressed =
+        '0x' +
+        Array.from(pubCompressed)
+          .map((b) => b.toString(16).padStart(2, '0'))
+          .join('');
+
+      const hashHex = keccak256(pubUncompressed.slice(1));
       const address = '0x' + hashHex.slice(-40);
 
-      setBox1PubKey(pubHex);
+      setBox1PubKeyUncompressed(pubHexUncompressed);
+      setBox1PubKeyCompressed(pubHexCompressed);
       setBox1Address(address);
     } catch (err: any) {
       setBox1Error(err?.message || 'Failed to derive public key and address.');
@@ -135,7 +147,7 @@ export default function Home() {
       });
 
       // Attach signature separately
-      tx.signature = Signature.from({
+      tx.signature = EthersSignature.from({
         r: txResp.signature.r,
         s: txResp.signature.s,
         v: txResp.signature.v,
@@ -160,23 +172,46 @@ export default function Home() {
         recovery = vNumber === 27 ? 0 : 1;
       }
 
-      // Recover public key using @noble/secp256k1's built-in recovery
-      const recoveredPubBytes = recoverPublicKeyFromSignature(
+      // Recover public key using @noble/secp256k1 v2 (uncompressed)
+      const recoveredPubBytesUncompressed = recoverPublicKeyFromSignature(
         digestBytes,
         { r, s },
         recovery
       );
 
-      const recoveredPubKey =
+      const recoveredPubKeyUncompressed =
         '0x' +
-        Array.from(recoveredPubBytes)
+        Array.from(recoveredPubBytesUncompressed)
           .map((b) => b.toString(16).padStart(2, '0'))
           .join('');
 
-      // Derive address from recovered public key
-      const pubNoPrefix = recoveredPubBytes.slice(1); // drop 0x04
+      // Derive address from uncompressed public key
+      const pubNoPrefix = recoveredPubBytesUncompressed.slice(1); // drop 0x04
       const derivedHash = keccak256(pubNoPrefix);
       const derivedAddress = ('0x' + derivedHash.slice(-40)).toLowerCase();
+
+      // Also compute compressed public key from the recovered point
+      const x = hexToBigInt(
+        '0x' +
+          Array.from(recoveredPubBytesUncompressed.slice(1, 33))
+            .map((b) => b.toString(16).padStart(2, '0'))
+            .join('')
+      );
+      const y = hexToBigInt(
+        '0x' +
+          Array.from(recoveredPubBytesUncompressed.slice(33, 65))
+            .map((b) => b.toString(16).padStart(2, '0'))
+            .join('')
+      );
+
+      const point = new secp.Point(x, y);
+      const recoveredPubBytesCompressed = point.toRawBytes(true); // true = compressed
+
+      const recoveredPubKeyCompressed =
+        '0x' +
+        Array.from(recoveredPubBytesCompressed)
+          .map((b) => b.toString(16).padStart(2, '0'))
+          .join('');
 
       const fromAddr = (txResp.from || '').toLowerCase();
 
@@ -195,7 +230,8 @@ export default function Home() {
 
       setBox3Result(
         `Signing hash (tx.unsignedHash): ${signingHash}
-Recovered public key (secp256k1): ${recoveredPubKey}
+Recovered public key (uncompressed): ${recoveredPubKeyUncompressed}
+Recovered public key (compressed): ${recoveredPubKeyCompressed}
 Derived address (from recovered pubkey): ${derivedAddress}
 From address (tx.from): ${fromAddr}
 ethers.recoverAddress result: ${ethersRecovered}
@@ -249,9 +285,10 @@ Match (ethers.recoverAddress vs tx.from)? ${matchEthers ? 'YES' : 'NO'}`
             </div>
           )}
 
-          {box1PubKey && (
+          {box1PubKeyUncompressed && (
             <div className="space-y-2 text-xs font-mono break-words">
-              <div>Public key (uncompressed): {box1PubKey}</div>
+              <div>Public key (uncompressed): {box1PubKeyUncompressed}</div>
+              <div>Public key (compressed): {box1PubKeyCompressed}</div>
               <div>Wallet address: {box1Address}</div>
             </div>
           )}
@@ -324,4 +361,4 @@ Match (ethers.recoverAddress vs tx.from)? ${matchEthers ? 'YES' : 'NO'}`
       </div>
     </div>
   );
-  }
+          }
