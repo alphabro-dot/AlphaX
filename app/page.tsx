@@ -180,48 +180,43 @@ export default function Home() {
       }
 
       const provider = new ethers.JsonRpcProvider(RPC_URLS[chain]);
-      const tx = await provider.getTransaction(cleanHash);
+      const txResp = await provider.getTransaction(cleanHash);
 
-      if (!tx) {
+      if (!txResp) {
         throw new Error(`Transaction not found on ${CHAIN_LABELS[chain]}.`);
       }
 
-      setTxJson(tx);
+      setTxJson(txResp);
 
-      if (!tx.signature || tx.signature.r === '0x' || tx.signature.s === '0x') {
+      if (!txResp.signature || txResp.signature.r === '0x' || txResp.signature.s === '0x') {
         throw new Error('Transaction does not have a usable v/r/s signature.');
       }
 
-      // Determine if this is a legacy-style signature (v = 27 or 28)
-      const vNumber = Number(tx.signature.v);
-      const isLegacyStyle = vNumber === 27 || vNumber === 28;
-
-      // For legacy-style signatures, we must serialize WITHOUT chainId in the RLP,
-      // even if tx.chainId is present. For EIP-155 style, we include chainId.
-      const chainIdForSigning = isLegacyStyle ? undefined : tx.chainId;
-
-      const txForSigning = Transaction.from({
-        to: tx.to,
-        nonce: tx.nonce,
-        gasLimit: tx.gasLimit,
-        gasPrice: tx.gasPrice ?? undefined,
-        maxFeePerGas: tx.maxFeePerGas ?? undefined,
-        maxPriorityFeePerGas: tx.maxPriorityFeePerGas ?? undefined,
-        data: tx.data,
-        value: tx.value,
-        chainId: chainIdForSigning,
-        type: tx.type,
+      // Build a Transaction object from the response fields (including signature)
+      const tx = Transaction.from({
+        to: txResp.to,
+        nonce: txResp.nonce,
+        gasLimit: txResp.gasLimit,
+        gasPrice: txResp.gasPrice ?? undefined,
+        maxFeePerGas: txResp.maxFeePerGas ?? undefined,
+        maxPriorityFeePerGas: txResp.maxPriorityFeePerGas ?? undefined,
+        data: txResp.data,
+        value: txResp.value,
+        chainId: txResp.chainId,
+        type: txResp.type,
+        // signature fields
+        r: txResp.signature.r,
+        s: txResp.signature.s,
+        v: txResp.signature.v,
       });
 
-      // Get the UNSIGNED serialized bytes (this is what was actually signed)
-      const unsignedSerialized = txForSigning.unsignedSerialized;
+      // Use ethers' built-in unsignedHash (this is the correct signing hash)
+      const signingHash = tx.unsignedHash; // "0x..." hex string
+      const digestBytes = ethers.getBytes(signingHash);
 
-      // Digest: keccak256 of UNSIGNED encoding (the signing hash)
-      const digestHex = ethers.keccak256(unsignedSerialized);
-      const digestBytes = ethers.getBytes(digestHex);
-
-      const rHex = tx.signature.r;
-      const sHex = tx.signature.s;
+      const vNumber = Number(txResp.signature.v);
+      const rHex = txResp.signature.r;
+      const sHex = txResp.signature.s;
 
       const r = hexToBigInt(rHex);
       const s = hexToBigInt(sHex);
@@ -229,10 +224,8 @@ export default function Home() {
       // Normalize v to recovery id 0 or 1
       let recovery: number;
       if (vNumber >= 35) {
-        // EIP-155: v = chainId * 2 + 35 or 36
         recovery = (vNumber - 35) % 2;
       } else {
-        // legacy 27 or 28
         recovery = vNumber === 27 ? 0 : 1;
       }
 
@@ -254,16 +247,29 @@ export default function Home() {
       const derivedHash = keccak256(pubNoPrefix);
       const derivedAddress = ('0x' + derivedHash.slice(-40)).toLowerCase();
 
-      const fromAddr = (tx.from || '').toLowerCase();
+      const fromAddr = (txResp.from || '').toLowerCase();
+
+      // Cross-check with ethers' recoverAddress
+      const ethersRecovered = ethers.recoverAddress(
+        signingHash,
+        {
+          r: rHex,
+          s: sHex,
+          v: vNumber,
+        }
+      ).toLowerCase();
+
       const matchDerived = derivedAddress === fromAddr;
+      const matchEthers = ethersRecovered === fromAddr;
 
       setBox3Result(
-        `Unsigned serialized (signing payload): ${unsignedSerialized}
-Signing hash (keccak of unsigned): ${digestHex}
+        `Signing hash (tx.unsignedHash): ${signingHash}
 Recovered public key (secp256k1): ${recoveredPubKey}
-Derived address (keccak of public key): ${derivedAddress}
+Derived address (from recovered pubkey): ${derivedAddress}
 From address (tx.from): ${fromAddr}
-Match (derived)? ${matchDerived ? 'YES' : 'NO'}`
+ethers.recoverAddress result: ${ethersRecovered}
+Match (derived vs tx.from)? ${matchDerived ? 'YES' : 'NO'}
+Match (ethers.recoverAddress vs tx.from)? ${matchEthers ? 'YES' : 'NO'}`
       );
     } catch (err: any) {
       setTxError(err?.message || 'Failed to verify transaction signature.');
@@ -387,4 +393,4 @@ Match (derived)? ${matchDerived ? 'YES' : 'NO'}`
       </div>
     </div>
   );
-}
+    }
