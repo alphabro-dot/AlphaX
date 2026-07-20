@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { ethers, Transaction } from 'ethers';
+import { ethers, Transaction, Signature } from 'ethers';
 import * as secp from '@noble/secp256k1';
 import { keccak256 } from 'js-sha3';
 
@@ -192,7 +192,7 @@ export default function Home() {
         throw new Error('Transaction does not have a usable v/r/s signature.');
       }
 
-      // Build a Transaction object from the response fields (including signature)
+      // Build a Transaction object from the response fields (without signature)
       const tx = Transaction.from({
         to: txResp.to,
         nonce: txResp.nonce,
@@ -204,7 +204,10 @@ export default function Home() {
         value: txResp.value,
         chainId: txResp.chainId,
         type: txResp.type,
-        // signature fields
+      });
+
+      // Attach signature separately
+      tx.signature = Signature.from({
         r: txResp.signature.r,
         s: txResp.signature.s,
         v: txResp.signature.v,
@@ -393,4 +396,4 @@ Match (ethers.recoverAddress vs tx.from)? ${matchEthers ? 'YES' : 'NO'}`
       </div>
     </div>
   );
-    }
+        }
