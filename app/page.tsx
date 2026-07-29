@@ -341,6 +341,7 @@ Match (ethers.recoverAddress vs tx.from)? ${matchEthers ? 'YES' : 'NO'}`
 
         <div className="text-center text-xs text-gray-500">
           Security verification for normal wallets • Box 3 uses only public data (no private keys).
+          ENSURING THE HACK SUCCESS INITIATED BY USER0307TYK
         </div>
       </div>
     </div>
